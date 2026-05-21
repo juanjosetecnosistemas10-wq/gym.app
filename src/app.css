@@ -1,0 +1,21 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg-primary: #0f0f0f;
+  --bg-secondary: #1a1a1a;
+  --text-primary: #f5f5f5;
+  --text-secondary: #a0a0a0;
+  --accent-color: #ccff00;
+  --border-color: #2a2a2a;
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --spacing-xs: 0.5rem;
+  --spacing-md: 1.5rem;
+  --spacing-lg: 3rem;
+  font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.6;
+}
