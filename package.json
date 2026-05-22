@@ -11,7 +11,8 @@
   "type": "module",
   "dependencies": {
     "@supabase/ssr": "^0.5.1",
-    "@supabase/supabase-js": "^2.45.0"
+    "@supabase/supabase-js": "^2.45.0",
+    "chart.js": "^4.5.1"
   },
   "devDependencies": {
     "@sveltejs/adapter-auto": "^4.0.0",
