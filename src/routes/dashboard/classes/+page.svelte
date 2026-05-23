@@ -2,14 +2,30 @@
   import { onMount } from 'svelte';
   import { createClient } from '$lib/supabaseClient';
 
-  let classes = $state<any[]>([]);
+  let members = $state<any[]>([]);
   let loading = $state(true);
   let formMode = $state<null | 'add' | 'edit'>(null);
-  let editingClass = $state<any>(null);
-  let formData = $state({ name: '', instructor: '', schedule: '', capacity: 20 });
+  let editingMember = $state<any>(null);
+  let formData = $state({ name: '', email: '', phone: '', plan: 'Mensual' });
   let saving = $state(false);
   let confirmDeleteId = $state<number | null>(null);
   let deleting = $state(false);
+
+  // Búsqueda y filtros
+  let search = $state('');
+  let filterPlan = $state('Todos');
+  const plans = ['Todos', 'Mensual', 'Trimestral', 'Anual'];
+
+  // Miembros filtrados (derivado reactivo)
+  let filtered = $derived(
+    members.filter(m => {
+      const matchSearch = search === '' ||
+        m.name.toLowerCase().includes(search.toLowerCase()) ||
+        m.email.toLowerCase().includes(search.toLowerCase());
+      const matchPlan = filterPlan === 'Todos' || m.plan === filterPlan;
+      return matchSearch && matchPlan;
+    })
+  );
 
   // Toasts
   let toasts = $state<{ id: number; message: string; type: 'success' | 'error' }[]>([]);
@@ -20,73 +36,62 @@
     setTimeout(() => { toasts = toasts.filter(t => t.id !== id); }, 3500);
   }
 
-  // Íconos por tipo de clase
-  const classIcons: Record<string, string> = {
-    yoga: '🧘', spinning: '🚴', crossfit: '🏋️', boxeo: '🥊',
-    pilates: '🤸', zumba: '💃', natacion: '🏊', cardio: '🔥',
-    funcional: '⚡', default: '📋',
-  };
-  function getIcon(name: string) {
-    const key = name.toLowerCase();
-    for (const k of Object.keys(classIcons)) {
-      if (key.includes(k)) return classIcons[k];
-    }
-    return classIcons.default;
+  function getInitials(name: string) {
+    return name.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase();
   }
-
-  // Color de capacidad
-  function capacityColor(cap: number) {
-    if (cap >= 30) return 'badge-green';
-    if (cap >= 15) return 'badge-orange';
-    return 'badge-gray';
+  const avatarColors = ['#c8ff00', '#ff5c00', '#00d4ff', '#ff3399', '#a855f7'];
+  function getAvatarColor(name: string) {
+    return avatarColors[name.charCodeAt(0) % avatarColors.length];
+  }
+  function planClass(plan: string) {
+    if (plan === 'Anual')      return 'badge badge-green';
+    if (plan === 'Trimestral') return 'badge badge-orange';
+    return 'badge badge-gray';
   }
 
   function openAdd() {
-    formData = { name: '', instructor: '', schedule: '', capacity: 20 };
-    editingClass = null;
+    formData = { name: '', email: '', phone: '', plan: 'Mensual' };
+    editingMember = null;
     formMode = 'add';
     confirmDeleteId = null;
   }
-
-  function openEdit(cls: any) {
-    formData = { name: cls.name, instructor: cls.instructor, schedule: cls.schedule, capacity: cls.capacity };
-    editingClass = cls;
+  function openEdit(member: any) {
+    formData = { name: member.name, email: member.email, phone: member.phone ?? '', plan: member.plan };
+    editingMember = member;
     formMode = 'edit';
     confirmDeleteId = null;
   }
-
-  function closeForm() { formMode = null; editingClass = null; }
+  function closeForm() { formMode = null; editingMember = null; }
 
   onMount(async () => {
     const supabase = createClient();
-    const { data, error } = await supabase.from('classes').select('*').order('id');
+    const { data, error } = await supabase.from('members').select('*').order('id');
     if (error) showToast('Error al cargar: ' + error.message, 'error');
-    if (data) classes = data;
+    if (data) members = data;
     loading = false;
   });
 
-  async function saveClass() {
-    if (!formData.name || !formData.instructor || !formData.schedule) {
-      showToast('Nombre, instructor y horario son obligatorios', 'error');
+  async function saveMember() {
+    if (!formData.name || !formData.email) {
+      showToast('Nombre y Email son obligatorios', 'error');
       return;
     }
     saving = true;
     const supabase = createClient();
-
     if (formMode === 'add') {
-      const { data, error } = await supabase.from('classes').insert([formData]).select();
+      const { data, error } = await supabase.from('members').insert([formData]).select();
       if (!error && data?.[0]) {
-        classes = [...classes, data[0]];
-        showToast(`✓ Clase "${data[0].name}" creada`);
+        members = [...members, data[0]];
+        showToast(`✓ ${data[0].name} registrado`);
         closeForm();
       } else {
         showToast('Error: ' + (error?.message ?? 'desconocido'), 'error');
       }
-    } else if (formMode === 'edit' && editingClass) {
-      const { data, error } = await supabase.from('classes').update(formData).eq('id', editingClass.id).select();
+    } else if (formMode === 'edit' && editingMember) {
+      const { data, error } = await supabase.from('members').update(formData).eq('id', editingMember.id).select();
       if (!error && data?.[0]) {
-        classes = classes.map(c => c.id === editingClass.id ? data[0] : c);
-        showToast(`✓ "${data[0].name}" actualizada`);
+        members = members.map(m => m.id === editingMember.id ? data[0] : m);
+        showToast(`✓ ${data[0].name} actualizado`);
         closeForm();
       } else {
         showToast('Error: ' + (error?.message ?? 'desconocido'), 'error');
@@ -95,14 +100,14 @@
     saving = false;
   }
 
-  async function deleteClass(id: number) {
+  async function deleteMember(id: number) {
     deleting = true;
     const supabase = createClient();
-    const { error } = await supabase.from('classes').delete().eq('id', id);
+    const { error } = await supabase.from('members').delete().eq('id', id);
     if (!error) {
-      classes = classes.filter(c => c.id !== id);
+      members = members.filter(m => m.id !== id);
       confirmDeleteId = null;
-      showToast('Clase eliminada');
+      showToast('Miembro eliminado');
     } else {
       showToast('Error al eliminar: ' + error.message, 'error');
     }
@@ -110,26 +115,25 @@
   }
 </script>
 
-<!-- TOASTS -->
 <div class="toast-container">
   {#each toasts as toast (toast.id)}
     <div class="toast {toast.type}">{toast.message}</div>
   {/each}
 </div>
 
-<div class="classes-page">
+<div class="members-page">
 
   <!-- Encabezado -->
   <div class="page-header animate-fade-up">
     <div>
-      <p class="section-label">Dashboard / Clases</p>
-      <h1 class="page-title">Clases del Gym</h1>
+      <p class="section-label">Dashboard / Miembros</p>
+      <h1 class="page-title">Miembros del Gym</h1>
     </div>
     <button
       class="btn {formMode === 'add' ? 'btn-ghost' : 'btn-primary'}"
       onclick={() => formMode === 'add' ? closeForm() : openAdd()}
     >
-      {formMode === 'add' ? '✕ Cancelar' : '+ Nueva Clase'}
+      {formMode === 'add' ? '✕ Cancelar' : '+ Nuevo Miembro'}
     </button>
   </div>
 
@@ -137,200 +141,288 @@
   {#if formMode !== null}
     <div class="form-card animate-scale-in">
       <p class="section-label" style="margin-bottom: var(--space-5)">
-        {formMode === 'add' ? 'Registrar Nueva Clase' : `Editando — ${editingClass?.name}`}
+        {formMode === 'add' ? 'Registrar Nuevo Miembro' : `Editando — ${editingMember?.name}`}
       </p>
       <div class="form-grid">
         <div class="field">
-          <label class="field-label font-mono">Nombre de la clase</label>
-          <input type="text" placeholder="Ej: Crossfit Matutino" bind:value={formData.name} />
+          <label class="field-label font-mono">Nombre completo</label>
+          <input type="text" placeholder="Ej: Carlos Rodríguez" bind:value={formData.name} />
         </div>
         <div class="field">
-          <label class="field-label font-mono">Instructor</label>
-          <input type="text" placeholder="Ej: Carlos Ruiz" bind:value={formData.instructor} />
+          <label class="field-label font-mono">Correo electrónico</label>
+          <input type="email" placeholder="correo@ejemplo.com" bind:value={formData.email} />
         </div>
         <div class="field">
-          <label class="field-label font-mono">Horario</label>
-          <input type="text" placeholder="Ej: Lun/Mié/Vie 6:00 AM" bind:value={formData.schedule} />
+          <label class="field-label font-mono">Teléfono</label>
+          <input type="text" placeholder="+57 300 000 0000" bind:value={formData.phone} />
         </div>
         <div class="field">
-          <label class="field-label font-mono">Capacidad máxima</label>
-          <input type="number" min="1" max="100" bind:value={formData.capacity} />
+          <label class="field-label font-mono">Plan</label>
+          <select bind:value={formData.plan}>
+            <option value="Mensual">Mensual</option>
+            <option value="Trimestral">Trimestral</option>
+            <option value="Anual">Anual</option>
+          </select>
         </div>
       </div>
       <div class="form-actions">
         <button class="btn btn-ghost btn-sm" onclick={closeForm}>Cancelar</button>
-        <button class="btn btn-primary" onclick={saveClass} disabled={saving}>
-          {saving ? 'Guardando...' : formMode === 'add' ? '✓ Crear Clase' : '✓ Guardar Cambios'}
+        <button class="btn btn-primary" onclick={saveMember} disabled={saving}>
+          {saving ? 'Guardando...' : formMode === 'add' ? '✓ Guardar Miembro' : '✓ Guardar Cambios'}
         </button>
       </div>
     </div>
   {/if}
 
-  <!-- CONTENIDO -->
+  <!-- BARRA DE BÚSQUEDA Y FILTROS -->
+  {#if !loading}
+    <div class="search-bar animate-fade-up">
+      <div class="search-input-wrap">
+        <span class="search-icon">🔍</span>
+        <input
+          class="search-input"
+          type="text"
+          placeholder="Buscar por nombre o email..."
+          bind:value={search}
+        />
+        {#if search}
+          <button class="search-clear" onclick={() => search = ''}>✕</button>
+        {/if}
+      </div>
+
+      <div class="filter-pills">
+        {#each plans as plan}
+          <button
+            class="filter-pill {filterPlan === plan ? 'active' : ''}"
+            onclick={() => filterPlan = plan}
+          >
+            {plan}
+          </button>
+        {/each}
+      </div>
+    </div>
+  {/if}
+
+  <!-- TABLA / ESTADOS -->
   {#if loading}
-    <div class="cards-grid">
-      {#each { length: 4 } as _}
-        <div class="class-card">
-          <div class="skeleton" style="width:48px;height:48px;border-radius:12px;margin-bottom:var(--space-4)"></div>
-          <div class="skeleton" style="width:70%;height:18px;margin-bottom:var(--space-2)"></div>
-          <div class="skeleton" style="width:50%;height:13px;margin-bottom:var(--space-4)"></div>
-          <div class="skeleton" style="width:100%;height:1px;margin-bottom:var(--space-4)"></div>
-          <div class="skeleton" style="width:40%;height:13px"></div>
+    <div class="table-card">
+      {#each { length: 5 } as _}
+        <div class="skeleton-row">
+          <div class="skeleton" style="width:40px;height:40px;border-radius:50%"></div>
+          <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+            <div class="skeleton" style="width:40%;height:14px"></div>
+            <div class="skeleton" style="width:60%;height:12px"></div>
+          </div>
+          <div class="skeleton" style="width:80px;height:24px;border-radius:99px"></div>
         </div>
       {/each}
     </div>
 
-  {:else if classes.length === 0}
+  {:else if members.length === 0}
     <div class="empty-state">
       <span class="empty-icon">🏋️</span>
-      <p class="empty-title font-display">Sin clases aún</p>
-      <p class="text-secondary" style="font-size:0.9rem">Crea tu primera clase con el botón de arriba.</p>
+      <p class="empty-title font-display">Sin miembros aún</p>
+      <p class="text-secondary" style="font-size:0.9rem">Agrega tu primer miembro con el botón de arriba.</p>
+    </div>
+
+  {:else if filtered.length === 0}
+    <div class="empty-state">
+      <span class="empty-icon">🔍</span>
+      <p class="empty-title font-display">Sin resultados</p>
+      <p class="text-secondary" style="font-size:0.9rem">
+        No hay miembros que coincidan con "{search}"{filterPlan !== 'Todos' ? ` en plan ${filterPlan}` : ''}.
+      </p>
+      <button class="btn btn-ghost btn-sm" onclick={() => { search = ''; filterPlan = 'Todos'; }}>
+        Limpiar filtros
+      </button>
     </div>
 
   {:else}
-    <!-- Contador -->
-    <div class="list-meta font-mono animate-fade-in">
-      {classes.length} clase{classes.length !== 1 ? 's' : ''} registrada{classes.length !== 1 ? 's' : ''}
-    </div>
-
-    <!-- Grid de cards -->
-    <div class="cards-grid">
-      {#each classes as cls, i (cls.id)}
-        <div class="class-card animate-fade-up" style="animation-delay:{i * 0.06}s">
-
-          <!-- Ícono y acciones -->
-          <div class="class-top">
-            <div class="class-icon">{getIcon(cls.name)}</div>
-            <div class="action-btns">
-              {#if confirmDeleteId === cls.id}
-                <span class="confirm-text font-mono">¿Eliminar?</span>
-                <button class="btn btn-danger btn-sm" onclick={() => deleteClass(cls.id)} disabled={deleting}>
-                  {deleting ? '...' : 'Sí'}
-                </button>
-                <button class="btn btn-ghost btn-sm" onclick={() => confirmDeleteId = null}>No</button>
-              {:else}
-                <button class="btn-icon edit" onclick={() => openEdit(cls)} title="Editar">✏️</button>
-                <button class="btn-icon delete" onclick={() => { confirmDeleteId = cls.id; formMode = null; }} title="Eliminar">🗑️</button>
-              {/if}
-            </div>
-          </div>
-
-          <!-- Info -->
-          <h3 class="class-name">{cls.name}</h3>
-          <p class="class-instructor font-mono">👤 {cls.instructor}</p>
-
-          <div class="divider" style="margin: var(--space-4) 0"></div>
-
-          <div class="class-footer">
-            <div class="class-schedule">
-              <span class="schedule-icon">🕐</span>
-              <span>{cls.schedule}</span>
-            </div>
-            <span class="badge {capacityColor(cls.capacity)}">
-              {cls.capacity} cupos
-            </span>
-          </div>
-
-        </div>
-      {/each}
+    <div class="table-card animate-fade-in">
+      <div class="table-meta font-mono">
+        {filtered.length} de {members.length} miembro{members.length !== 1 ? 's' : ''}
+        {filterPlan !== 'Todos' ? `· Plan ${filterPlan}` : ''}
+        {search ? `· "${search}"` : ''}
+      </div>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Miembro</th>
+            <th>Contacto</th>
+            <th>Plan</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each filtered as member, i (member.id)}
+            <tr class="animate-fade-up" style="animation-delay:{i * 0.03}s">
+              <td>
+                <div class="member-cell">
+                  <div class="avatar" style="--av-color:{getAvatarColor(member.name)}">
+                    {getInitials(member.name)}
+                  </div>
+                  <div>
+                    <div class="member-name">{member.name}</div>
+                    <div class="member-id font-mono">#{String(member.id).padStart(4, '0')}</div>
+                  </div>
+                </div>
+              </td>
+              <td>
+                <div class="contact-cell">
+                  <span class="contact-email">{member.email}</span>
+                  {#if member.phone}
+                    <span class="contact-phone font-mono">{member.phone}</span>
+                  {/if}
+                </div>
+              </td>
+              <td><span class={planClass(member.plan)}>{member.plan}</span></td>
+              <td>
+                {#if confirmDeleteId === member.id}
+                  <div class="confirm-delete">
+                    <span class="confirm-text font-mono">¿Eliminar?</span>
+                    <button class="btn btn-danger btn-sm" onclick={() => deleteMember(member.id)} disabled={deleting}>
+                      {deleting ? '...' : 'Sí'}
+                    </button>
+                    <button class="btn btn-ghost btn-sm" onclick={() => confirmDeleteId = null}>No</button>
+                  </div>
+                {:else}
+                  <div class="action-btns">
+                    <button class="btn-icon edit" onclick={() => openEdit(member)} title="Editar">✏️</button>
+                    <button class="btn-icon delete" onclick={() => { confirmDeleteId = member.id; formMode = null; }} title="Eliminar">🗑️</button>
+                  </div>
+                {/if}
+              </td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
     </div>
   {/if}
 
 </div>
 
 <style>
-  .classes-page { display: flex; flex-direction: column; gap: var(--space-6); }
-
-  /* Header */
+  .members-page { display: flex; flex-direction: column; gap: var(--space-6); }
   .page-header { display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: var(--space-4); }
   .page-title { font-size: clamp(2rem, 5vw, 3.5rem); margin-top: var(--space-2); }
 
   /* Formulario */
-  .form-card {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-top: 2px solid var(--accent);
-    border-radius: var(--radius-lg);
-    padding: var(--space-6);
-  }
+  .form-card { background: var(--bg-secondary); border: 1px solid var(--border); border-top: 2px solid var(--accent); border-radius: var(--radius-lg); padding: var(--space-6); }
   .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); margin-bottom: var(--space-5); }
   .field { display: flex; flex-direction: column; gap: var(--space-2); }
   .field-label { font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-muted); }
   .form-actions { display: flex; justify-content: flex-end; gap: var(--space-3); }
 
-  /* Meta */
-  .list-meta { font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-muted); }
-
-  /* Grid de cards */
-  .cards-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  /* ── Búsqueda y filtros ── */
+  .search-bar {
+    display: flex;
+    flex-wrap: wrap;
     gap: var(--space-4);
+    align-items: center;
   }
 
-  /* Card de clase */
-  .class-card {
+  .search-input-wrap {
+    flex: 1;
+    min-width: 240px;
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+  .search-icon {
+    position: absolute;
+    left: var(--space-4);
+    font-size: 0.9rem;
+    pointer-events: none;
+  }
+  .search-input {
+    width: 100%;
+    padding-left: calc(var(--space-4) + 1.4rem) !important;
+    padding-right: var(--space-8) !important;
     background: var(--bg-secondary);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
-    padding: var(--space-6);
-    display: flex;
-    flex-direction: column;
-    transition: transform var(--transition-slow), border-color var(--transition-base), box-shadow var(--transition-base);
-    position: relative;
-    overflow: hidden;
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-size: 0.9rem;
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
   }
-  .class-card::before {
-    content: '';
+  .search-input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+    outline: none;
+  }
+  .search-clear {
     position: absolute;
-    inset: 0;
-    background: linear-gradient(135deg, rgba(255,255,255,0.02) 0%, transparent 60%);
-    pointer-events: none;
+    right: var(--space-3);
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 0.8rem;
+    padding: var(--space-1);
+    border-radius: var(--radius-sm);
+    transition: color var(--transition-fast);
   }
-  .class-card:hover {
-    transform: translateY(-4px);
+  .search-clear:hover { color: var(--text-primary); }
+
+  /* Pills de filtro */
+  .filter-pills { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+  .filter-pill {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius-full);
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+  }
+  .filter-pill:hover { border-color: var(--border-bright); color: var(--text-primary); }
+  .filter-pill.active {
+    background: var(--accent-dim);
     border-color: var(--border-accent);
-    box-shadow: var(--shadow-lg), 0 0 20px var(--accent-glow);
+    color: var(--accent);
   }
 
-  /* Top de la card */
-  .class-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: var(--space-4); }
-  .class-icon {
-    width: 48px; height: 48px;
-    background: var(--accent-soft);
-    border: 1px solid var(--border-accent);
-    border-radius: var(--radius-md);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 1.4rem;
-  }
+  /* Tabla */
+  .table-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+  .table-meta { padding: var(--space-4) var(--space-6); font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-muted); border-bottom: 1px solid var(--border); }
+  .table { width: 100%; border-collapse: collapse; text-align: left; }
+  .table thead { background: var(--bg-void); }
+  .table th { padding: var(--space-4) var(--space-6); font-family: var(--font-mono); font-size: 0.65rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--text-muted); font-weight: 400; }
+  .table td { padding: var(--space-4) var(--space-6); border-top: 1px solid var(--border); vertical-align: middle; }
+  .table tbody tr { transition: background var(--transition-fast); }
+  .table tbody tr:hover { background: var(--accent-soft); }
 
-  /* Acciones */
-  .action-btns { display: flex; gap: var(--space-1); align-items: center; }
-  .btn-icon {
-    background: none; border: 1px solid transparent; border-radius: var(--radius-md);
-    padding: var(--space-2); cursor: pointer; font-size: 0.9rem; line-height: 1;
-    transition: all var(--transition-fast); opacity: 0.4;
-  }
+  .member-cell { display: flex; align-items: center; gap: var(--space-4); }
+  .avatar { width: 40px; height: 40px; border-radius: 50%; background: var(--av-color, var(--accent)); color: var(--bg-void); display: flex; align-items: center; justify-content: center; font-family: var(--font-display); font-weight: 900; font-size: 0.85rem; flex-shrink: 0; opacity: 0.9; }
+  .member-name { font-weight: 600; font-size: 0.95rem; color: var(--text-primary); }
+  .member-id { font-size: 0.7rem; color: var(--text-muted); margin-top: 2px; }
+  .contact-cell { display: flex; flex-direction: column; gap: 3px; }
+  .contact-email { font-size: 0.9rem; color: var(--text-secondary); }
+  .contact-phone { font-size: 0.75rem; color: var(--text-muted); }
+
+  .action-btns { display: flex; gap: var(--space-2); align-items: center; }
+  .btn-icon { background: none; border: 1px solid transparent; border-radius: var(--radius-md); padding: var(--space-2); cursor: pointer; font-size: 1rem; line-height: 1; transition: all var(--transition-fast); opacity: 0.5; }
   .btn-icon:hover { opacity: 1; border-color: var(--border-bright); background: var(--bg-elevated); }
   .btn-icon.delete:hover { border-color: rgba(255,92,0,0.4); background: var(--accent-2-dim); }
-  .confirm-text { font-size: 0.68rem; letter-spacing: 0.08em; color: var(--accent-2); }
+  .confirm-delete { display: flex; align-items: center; gap: var(--space-2); }
+  .confirm-text { font-size: 0.72rem; letter-spacing: 0.08em; color: var(--accent-2); }
 
-  /* Info */
-  .class-name { font-size: 1.2rem; font-weight: 800; letter-spacing: -0.01em; color: var(--text-primary); margin-bottom: var(--space-2); }
-  .class-instructor { font-size: 0.75rem; letter-spacing: 0.06em; color: var(--text-muted); }
+  .skeleton-row { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-4) var(--space-6); border-top: 1px solid var(--border); }
+  .skeleton-row:first-child { border-top: none; }
 
-  /* Footer */
-  .class-footer { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); margin-top: auto; }
-  .class-schedule { display: flex; align-items: center; gap: var(--space-2); font-size: 0.82rem; color: var(--text-secondary); }
-  .schedule-icon { font-size: 0.9rem; }
-
-  /* Empty */
-  .empty-state { text-align: center; padding: var(--space-20) var(--space-8); border: 1px dashed var(--border-bright); border-radius: var(--radius-xl); display: flex; flex-direction: column; align-items: center; gap: var(--space-4); }
+  .empty-state { text-align: center; padding: var(--space-16) var(--space-8); border: 1px dashed var(--border-bright); border-radius: var(--radius-xl); display: flex; flex-direction: column; align-items: center; gap: var(--space-4); }
   .empty-icon { font-size: 3rem; }
   .empty-title { font-size: 1.5rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-secondary); }
 
-  /* Responsive */
   @media (max-width: 640px) {
     .form-grid { grid-template-columns: 1fr; }
+    .table th:nth-child(2), .table td:nth-child(2) { display: none; }
+    .search-bar { flex-direction: column; align-items: stretch; }
+    .search-input-wrap { min-width: unset; }
   }
 </style>
