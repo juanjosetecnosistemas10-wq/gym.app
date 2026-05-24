@@ -8,6 +8,7 @@
     { href: '/dashboard', label: 'Panel' },
     { href: '/dashboard/members', label: 'Miembros' },
     { href: '/dashboard/classes', label: 'Clases' },
+    { href: '/dashboard/payments', label: 'Pagos' },
   ];
 
   // Ocultar navbar en el login
